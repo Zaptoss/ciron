@@ -1,0 +1,12 @@
+log_level = "info"
+
+[program.web]
+command = "./webapp"
+autostart = true
+restart = "always"
+
+[program.db]
+command = "/usr/bin/postgres"
+autostart = false
+restart = "on-failure"
+env = { PGDATA = "/var/lib/postgres/data" }
