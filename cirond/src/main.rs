@@ -13,16 +13,13 @@ use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
 
 #[cfg(unix)]
-use {
-    tokio::net::UnixListener,
-    tokio_stream::wrappers::UnixListenerStream,
-};
+use {tokio::net::UnixListener, tokio_stream::wrappers::UnixListenerStream};
 
 #[cfg(target_os = "linux")]
 use {
     std::pin::Pin,
     std::task::{Context, Poll},
-    tokio_vsock::{VsockAddr, VsockListener, VsockStream, VMADDR_CID_ANY},
+    tokio_vsock::{VMADDR_CID_ANY, VsockAddr, VsockListener, VsockStream},
     tonic::transport::server::Connected,
 };
 
@@ -36,9 +33,7 @@ struct VsockConnection {
 impl Connected for VsockConnection {
     type ConnectInfo = ();
 
-    fn connect_info(&self) -> Self::ConnectInfo {
-        ()
-    }
+    fn connect_info(&self) -> Self::ConnectInfo {}
 }
 
 #[cfg(target_os = "linux")]

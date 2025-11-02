@@ -6,11 +6,7 @@ use ciron_common::{
 use clap::{Parser, Subcommand};
 
 #[cfg(unix)]
-use {
-    hyper_util::rt::TokioIo,
-    tokio::net::UnixStream,
-    tower::service_fn,
-};
+use {hyper_util::rt::TokioIo, tokio::net::UnixStream, tower::service_fn};
 
 #[cfg(target_os = "linux")]
 use tokio_vsock::{VsockAddr, VsockStream};
@@ -97,7 +93,7 @@ async fn main() -> Result<()> {
                         UnixStream::connect(path)
                             .await
                             .map(TokioIo::new)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                            .map_err(std::io::Error::other)
                     }
                 }))
                 .await
@@ -118,7 +114,7 @@ async fn main() -> Result<()> {
                     VsockStream::connect(addr)
                         .await
                         .map(TokioIo::new)
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+                        .map_err(std::io::Error::other)
                 }))
                 .await
                 .context("Failed to connect to cirond via Vsock. Is the daemon running?")?;
@@ -234,8 +230,6 @@ async fn main() -> Result<()> {
 
             Ok(())
         }
-        Commands::Logs { .. } => unimplemented!(),
-        Commands::Reload { .. } => unimplemented!(),
-        Commands::Shutdown { .. } => unimplemented!(),
+        _ => unimplemented!(),
     }
 }

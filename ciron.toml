@@ -9,11 +9,6 @@ enable_vsock = false
 vsock_cid = 2
 vsock_port = 50051
 
-[program.web]
-command = "./loop_app.sh"
-autostart = true
-restart = "always"
-
 [program.sleep]
 command = "sleep 5"
 autostart = true

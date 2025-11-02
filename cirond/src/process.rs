@@ -88,7 +88,7 @@ impl ProcessManager {
         // Parse command and arguments using shell-words for proper quote handling
         let parts = shell_words::split(&process.config.command)
             .context(format!("Failed to parse command for {}", name))?;
-        
+
         if parts.is_empty() {
             return Err(anyhow::anyhow!("Empty command for {}", name));
         }
@@ -115,7 +115,7 @@ impl ProcessManager {
 
         let pid = child.id();
         info!("Process {} started with PID: {:?}", name, pid);
-        
+
         // Store the PID
         process.pid = pid;
 
@@ -162,15 +162,18 @@ impl ProcessManager {
         if let Some(pid) = process.pid {
             #[cfg(unix)]
             {
-                use nix::sys::signal::{kill, Signal};
+                use nix::sys::signal::{Signal, kill};
                 use nix::unistd::Pid;
-                
+
                 match kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
                     Ok(_) => info!("Sent SIGTERM to process {} (PID: {})", name, pid),
-                    Err(e) => warn!("Failed to send SIGTERM to process {} (PID: {}): {}", name, pid, e),
+                    Err(e) => warn!(
+                        "Failed to send SIGTERM to process {} (PID: {}): {}",
+                        name, pid, e
+                    ),
                 }
             }
-            
+
             #[cfg(not(unix))]
             {
                 warn!("Signal handling not implemented for non-Unix systems");

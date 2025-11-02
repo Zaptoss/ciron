@@ -1,7 +1,7 @@
 use anyhow::Result;
 use config::{Config, File};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, u32};
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GlobalConfig {

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::{path::PathBuf, u32};
+use std::path::PathBuf;
 use tokio_vsock::VMADDR_CID_ANY;
 
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ impl Transport {
 
     pub fn default_vsock() -> Self {
         Transport::Vsock {
-            cid:VMADDR_CID_ANY,
+            cid: VMADDR_CID_ANY,
             port: 50051,
         }
     }
