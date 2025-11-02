@@ -6,14 +6,14 @@ use ciron_common::{
 use clap::{Parser, Subcommand};
 
 #[cfg(unix)]
-use hyper_util::rt::TokioIo;
-#[cfg(unix)]
-use tokio::net::UnixStream;
-#[cfg(unix)]
-use tower::service_fn;
+use {
+    hyper_util::rt::TokioIo,
+    tokio::net::UnixStream,
+    tower::service_fn,
+};
 
 #[cfg(target_os = "linux")]
-use tokio_vsock::VsockStream;
+use tokio_vsock::{VsockAddr, VsockStream};
 
 #[derive(Parser)]
 #[command(name = "cironctl")]
@@ -33,9 +33,7 @@ enum Commands {
     Status,
 
     /// Start a process
-    Start {
-        name: String,
-    },
+    Start { name: String },
 
     /// Stop a process
     Stop {
@@ -45,9 +43,7 @@ enum Commands {
     },
 
     /// Restart a process
-    Restart {
-        name: String,
-    },
+    Restart { name: String },
 
     /// Show logs of a process
     Logs {
@@ -78,8 +74,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Parse transport
-    let transport = Transport::parse(&cli.transport)
-        .context("Failed to parse transport address")?;
+    let transport =
+        Transport::parse(&cli.transport).context("Failed to parse transport address")?;
 
     // Connect to daemon based on transport type
     let mut client = match transport {
@@ -92,7 +88,7 @@ async fn main() -> Result<()> {
         #[cfg(unix)]
         Transport::Unix { ref path } => {
             let path = path.clone();
-            
+
             // Create a channel that connects via Unix socket
             let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")?
                 .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
@@ -106,7 +102,7 @@ async fn main() -> Result<()> {
                 }))
                 .await
                 .context("Failed to connect to cirond via Unix socket. Is the daemon running?")?;
-            
+
             CironDaemonClient::new(channel)
         }
         #[cfg(not(unix))]
@@ -117,17 +113,16 @@ async fn main() -> Result<()> {
         Transport::Vsock { cid, port } => {
             // Create a channel that connects via Vsock
             let channel = tonic::transport::Endpoint::try_from("http://[::]:50051")?
-                .connect_with_connector(service_fn(move |_: tonic::transport::Uri| {
-                    async move {
-                        VsockStream::connect(cid, port)
-                            .await
-                            .map(TokioIo::new)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                    }
+                .connect_with_connector(service_fn(move |_: tonic::transport::Uri| async move {
+                    let addr = VsockAddr::new(cid, port);
+                    VsockStream::connect(addr)
+                        .await
+                        .map(TokioIo::new)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
                 }))
                 .await
                 .context("Failed to connect to cirond via Vsock. Is the daemon running?")?;
-            
+
             CironDaemonClient::new(channel)
         }
         #[cfg(not(target_os = "linux"))]
@@ -204,7 +199,10 @@ async fn main() -> Result<()> {
             println!("Stopping process: {}", name);
 
             let response = client
-                .stop_process(StopProcessRequest { name: name.clone(), force })
+                .stop_process(StopProcessRequest {
+                    name: name.clone(),
+                    force,
+                })
                 .await
                 .context("Failed to stop process")?;
 

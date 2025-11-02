@@ -25,6 +25,7 @@ struct ManagedProcess {
     _name: String,
     config: ProgramConfig,
     monitor_handle: Option<JoinHandle<()>>,
+    pid: Option<u32>,
     running: bool,
 }
 
@@ -47,6 +48,7 @@ impl ProcessManager {
                     _name: name,
                     config: program_config,
                     monitor_handle: None,
+                    pid: None,
                     running: false,
                 },
             );
@@ -83,13 +85,15 @@ impl ProcessManager {
 
         info!("Starting process: {}", name);
 
-        // Parse command and arguments
-        let parts: Vec<&str> = process.config.command.split_whitespace().collect();
+        // Parse command and arguments using shell-words for proper quote handling
+        let parts = shell_words::split(&process.config.command)
+            .context(format!("Failed to parse command for {}", name))?;
+        
         if parts.is_empty() {
             return Err(anyhow::anyhow!("Empty command for {}", name));
         }
 
-        let mut cmd = Command::new(parts[0]);
+        let mut cmd = Command::new(&parts[0]);
         if parts.len() > 1 {
             cmd.args(&parts[1..]);
         }
@@ -111,6 +115,9 @@ impl ProcessManager {
 
         let pid = child.id();
         info!("Process {} started with PID: {:?}", name, pid);
+        
+        // Store the PID
+        process.pid = pid;
 
         let _ = self.event_tx.send(ProcessEvent::Started(name.to_string()));
 
@@ -127,10 +134,7 @@ impl ProcessManager {
                 }
                 Err(e) => {
                     error!("Error waiting for process {}: {}", name_clone, e);
-                    let _ = event_tx.send(ProcessEvent::Failed(
-                        name_clone.clone(),
-                        e.to_string(),
-                    ));
+                    let _ = event_tx.send(ProcessEvent::Failed(name_clone.clone(), e.to_string()));
                 }
             }
         });
@@ -154,12 +158,32 @@ impl ProcessManager {
 
         info!("Stopping process: {}", name);
 
-        // Cancel the monitor task which will kill the process
+        // Send SIGTERM to the process
+        if let Some(pid) = process.pid {
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{kill, Signal};
+                use nix::unistd::Pid;
+                
+                match kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
+                    Ok(_) => info!("Sent SIGTERM to process {} (PID: {})", name, pid),
+                    Err(e) => warn!("Failed to send SIGTERM to process {} (PID: {}): {}", name, pid, e),
+                }
+            }
+            
+            #[cfg(not(unix))]
+            {
+                warn!("Signal handling not implemented for non-Unix systems");
+            }
+        }
+
+        // Cancel the monitor task
         if let Some(handle) = process.monitor_handle.take() {
             handle.abort();
         }
 
         process.running = false;
+        process.pid = None;
 
         Ok(())
     }
@@ -194,12 +218,16 @@ impl ProcessManager {
                             };
 
                             if should_restart {
-                                info!("Scheduling restart for process {} due to restart policy", name);
+                                info!(
+                                    "Scheduling restart for process {} due to restart policy",
+                                    name
+                                );
                                 let event_tx = self.event_tx.clone();
                                 let name_clone = name.clone();
                                 tokio::spawn(async move {
                                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                                    let _ = event_tx.send(ProcessEvent::RestartRequested(name_clone));
+                                    let _ =
+                                        event_tx.send(ProcessEvent::RestartRequested(name_clone));
                                 });
                             }
                         }

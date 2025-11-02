@@ -1,10 +1,10 @@
 use ciron_common::{
     CironDaemon, DaemonInfo, GetLogsRequest, GetProcessStatusRequest, GetStatusRequest,
-    GetStatusResponse, LogEntry, ProcessConfig, ProcessEvent as ProtoProcessEvent,
-    ProcessEventType, ProcessState, ProcessStatus as ProtoProcessStatus, ReloadConfigRequest,
-    ReloadConfigResponse, RestartProcessRequest, RestartProcessResponse, ShutdownRequest,
-    ShutdownResponse, StartProcessRequest, StartProcessResponse, StopProcessRequest,
-    StopProcessResponse, StreamEventsRequest, TransportInfo, TransportType,
+    GetStatusResponse, LogEntry, ProcessConfig, ProcessEvent as ProtoProcessEvent, ProcessState,
+    ProcessStatus as ProtoProcessStatus, ReloadConfigRequest, ReloadConfigResponse,
+    RestartProcessRequest, RestartProcessResponse, ShutdownRequest, ShutdownResponse,
+    StartProcessRequest, StartProcessResponse, StopProcessRequest, StopProcessResponse,
+    StreamEventsRequest, TransportInfo, TransportType,
 };
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -45,17 +45,16 @@ impl CironDaemonService {
     }
 
     fn parse_transport_info(&self) -> TransportInfo {
-        let (transport_type, address) = if self.transport.starts_with("inet://")
-            || self.transport.starts_with("tcp://")
-        {
-            (TransportType::Inet, self.transport.clone())
-        } else if self.transport.starts_with("unix://") {
-            (TransportType::Unix, self.transport.clone())
-        } else if self.transport.starts_with("vsock://") {
-            (TransportType::Vsock, self.transport.clone())
-        } else {
-            (TransportType::Unspecified, self.transport.clone())
-        };
+        let (transport_type, address) =
+            if self.transport.starts_with("inet://") || self.transport.starts_with("tcp://") {
+                (TransportType::Inet, self.transport.clone())
+            } else if self.transport.starts_with("unix://") {
+                (TransportType::Unix, self.transport.clone())
+            } else if self.transport.starts_with("vsock://") {
+                (TransportType::Vsock, self.transport.clone())
+            } else {
+                (TransportType::Unspecified, self.transport.clone())
+            };
 
         TransportInfo {
             r#type: transport_type as i32,
@@ -75,7 +74,7 @@ impl CironDaemon for CironDaemonService {
         let (processes, daemon_info) = {
             let manager = self.manager.read().await;
             let processes = manager.list_processes();
-            
+
             let running_count = processes.iter().filter(|(_, running)| *running).count();
             let stopped_count = processes.len() - running_count;
 
@@ -93,7 +92,7 @@ impl CironDaemon for CironDaemonService {
                 stopped_processes: stopped_count as i32,
                 transport: Some(self.parse_transport_info()),
             };
-            
+
             (processes, daemon_info)
         };
 
@@ -209,7 +208,10 @@ impl CironDaemon for CironDaemonService {
     ) -> Result<Response<StopProcessResponse>, Status> {
         let req = request.into_inner();
         let name = req.name;
-        info!("Received StopProcess request for: {} (force: {})", name, req.force);
+        info!(
+            "Received StopProcess request for: {} (force: {})",
+            name, req.force
+        );
 
         let mut manager = self.manager.write().await;
 
@@ -272,7 +274,7 @@ impl CironDaemon for CironDaemonService {
 
     async fn get_logs(
         &self,
-        request: Request<GetLogsRequest>,
+        _request: Request<GetLogsRequest>,
     ) -> Result<Response<Self::GetLogsStream>, Status> {
         unimplemented!()
     }
@@ -286,16 +288,17 @@ impl CironDaemon for CironDaemonService {
 
     async fn shutdown(
         &self,
-        request: Request<ShutdownRequest>,
+        _request: Request<ShutdownRequest>,
     ) -> Result<Response<ShutdownResponse>, Status> {
         unimplemented!()
     }
 
-    type StreamEventsStream = tokio_stream::wrappers::ReceiverStream<Result<ProtoProcessEvent, Status>>;
+    type StreamEventsStream =
+        tokio_stream::wrappers::ReceiverStream<Result<ProtoProcessEvent, Status>>;
 
     async fn stream_events(
         &self,
-        request: Request<StreamEventsRequest>,
+        _request: Request<StreamEventsRequest>,
     ) -> Result<Response<Self::StreamEventsStream>, Status> {
         unimplemented!()
     }

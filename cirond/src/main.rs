@@ -1,7 +1,7 @@
 mod grpc_server;
 mod process;
 
-use ciron_common::{load_config, CironDaemonServer, Transport};
+use ciron_common::{CironDaemonServer, Transport, load_config};
 use clap::Parser;
 use grpc_server::CironDaemonService;
 use process::ProcessManager;
@@ -9,18 +9,67 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::transport::Server;
-use tracing::{error, info, Level};
+use tracing::{Level, error, info};
 use tracing_subscriber::FmtSubscriber;
 
 #[cfg(unix)]
-use tokio::net::UnixListener;
-#[cfg(unix)]
-use tokio_stream::wrappers::UnixListenerStream;
+use {
+    tokio::net::UnixListener,
+    tokio_stream::wrappers::UnixListenerStream,
+};
 
 #[cfg(target_os = "linux")]
-use tokio_vsock::{VsockListener, VsockStream, VMADDR_CID_ANY};
+use {
+    std::pin::Pin,
+    std::task::{Context, Poll},
+    tokio_vsock::{VsockAddr, VsockListener, VsockStream, VMADDR_CID_ANY},
+    tonic::transport::server::Connected,
+};
+
+// Wrapper to implement Connected trait for VsockStream
 #[cfg(target_os = "linux")]
-use tokio_stream::wrappers::TcpListenerStream;
+struct VsockConnection {
+    stream: VsockStream,
+}
+
+#[cfg(target_os = "linux")]
+impl Connected for VsockConnection {
+    type ConnectInfo = ();
+
+    fn connect_info(&self) -> Self::ConnectInfo {
+        ()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl tokio::io::AsyncRead for VsockConnection {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_read(cx, buf)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl tokio::io::AsyncWrite for VsockConnection {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.stream).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stream).poll_shutdown(cx)
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "cirond")]
@@ -48,8 +97,7 @@ async fn main() -> anyhow::Result<()> {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 
     info!("Starting Cirond process manager daemon");
     info!("Loading configuration from: {}", cli.config);
@@ -66,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
         vec![Transport::parse(transport_str)?]
     } else {
         let mut transports = Vec::new();
-        
+
         if config.transport.enable_unix {
             #[cfg(unix)]
             {
@@ -80,7 +128,7 @@ async fn main() -> anyhow::Result<()> {
                 info!("Unix socket requested but not available on this platform");
             }
         }
-        
+
         if config.transport.enable_inet {
             let parts: Vec<&str> = config.transport.inet_address.split(':').collect();
             if parts.len() == 2 {
@@ -91,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
                 info!("Inet socket enabled: {}", config.transport.inet_address);
             }
         }
-        
+
         if config.transport.enable_vsock {
             #[cfg(target_os = "linux")]
             {
@@ -99,26 +147,29 @@ async fn main() -> anyhow::Result<()> {
                     cid: config.transport.vsock_cid,
                     port: config.transport.vsock_port,
                 });
-                info!("Vsock enabled: CID={}, port={}", config.transport.vsock_cid, config.transport.vsock_port);
+                info!(
+                    "Vsock enabled: CID={}, port={}",
+                    config.transport.vsock_cid, config.transport.vsock_port
+                );
             }
             #[cfg(not(target_os = "linux"))]
             {
                 info!("Vsock requested but not available on this platform (Linux only)");
             }
         }
-        
+
         if transports.is_empty() {
             error!("No transports enabled in configuration");
             anyhow::bail!("At least one transport must be enabled");
         }
-        
+
         transports
     };
 
     // Create process manager and load configuration
     let manager = ProcessManager::new();
     let manager = Arc::new(RwLock::new(manager));
-    
+
     {
         let mut mgr = manager.write().await;
         mgr.load_from_config(config);
@@ -136,13 +187,17 @@ async fn main() -> anyhow::Result<()> {
         let processes = mgr.list_processes();
         info!("Process status:");
         for (name, running) in processes {
-            info!("  {} - {}", name, if running { "RUNNING" } else { "STOPPED" });
+            info!(
+                "  {} - {}",
+                name,
+                if running { "RUNNING" } else { "STOPPED" }
+            );
         }
     }
 
     // Setup Ctrl+C handler
     let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
-    
+
     // Spawn Ctrl+C listener
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
@@ -164,7 +219,7 @@ async fn main() -> anyhow::Result<()> {
     let event_loop = tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            
+
             let mut mgr = event_manager.write().await;
             // Process all pending events
             while mgr.handle_single_event().await {}
@@ -174,25 +229,22 @@ async fn main() -> anyhow::Result<()> {
 
     // Start gRPC servers for each transport
     let mut server_handles = Vec::new();
-    
+
     for transport in transports {
         let manager_clone = manager.clone();
         let config_path = cli.config.clone();
         let transport_str = transport.to_string();
         let mut shutdown_rx_clone = shutdown_rx.resubscribe();
-        
+
         let handle = tokio::spawn(async move {
-            let grpc_service = CironDaemonService::new(
-                manager_clone,
-                config_path,
-                transport_str.clone(),
-            );
-            
+            let grpc_service =
+                CironDaemonService::new(manager_clone, config_path, transport_str.clone());
+
             let result: anyhow::Result<()> = match transport {
                 Transport::Inet { host, port } => {
                     let addr = format!("{}:{}", host, port).parse()?;
                     info!("Starting gRPC server on: {}", addr);
-                    
+
                     Server::builder()
                         .add_service(CironDaemonServer::new(grpc_service))
                         .serve_with_shutdown(addr, async move {
@@ -205,12 +257,12 @@ async fn main() -> anyhow::Result<()> {
                 Transport::Unix { path } => {
                     // Remove existing socket file if it exists
                     let _ = std::fs::remove_file(&path);
-                    
+
                     info!("Starting gRPC server on Unix socket: {}", path.display());
-                    
+
                     let uds = UnixListener::bind(&path)?;
                     let uds_stream = UnixListenerStream::new(uds);
-                    
+
                     Server::builder()
                         .add_service(CironDaemonServer::new(grpc_service))
                         .serve_with_incoming_shutdown(uds_stream, async move {
@@ -220,23 +272,24 @@ async fn main() -> anyhow::Result<()> {
                         .map_err(|e| anyhow::anyhow!("Server error: {}", e))
                 }
                 #[cfg(not(unix))]
-                Transport::Unix { .. } => {
-                    Err(anyhow::anyhow!("Unix sockets not supported on this platform"))
-                }
+                Transport::Unix { .. } => Err(anyhow::anyhow!(
+                    "Unix sockets not supported on this platform"
+                )),
                 #[cfg(target_os = "linux")]
                 Transport::Vsock { cid, port } => {
                     info!("Starting gRPC server on Vsock: CID={}, port={}", cid, port);
-                    
+
                     // For server, we listen on VMADDR_CID_ANY to accept connections from any CID
-                    let listener = VsockListener::bind(VMADDR_CID_ANY, port)?;
-                    
+                    let addr = VsockAddr::new(VMADDR_CID_ANY, port);
+                    let mut listener = VsockListener::bind(addr)?;
+
                     // Create a stream of incoming connections
                     let incoming = async_stream::stream! {
                         loop {
                             match listener.accept().await {
                                 Ok((stream, addr)) => {
                                     info!("Accepted vsock connection from {:?}", addr);
-                                    yield Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream));
+                                    yield Ok::<_, std::io::Error>(VsockConnection { stream });
                                 }
                                 Err(e) => {
                                     error!("Error accepting vsock connection: {}", e);
@@ -245,7 +298,7 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     };
-                    
+
                     Server::builder()
                         .add_service(CironDaemonServer::new(grpc_service))
                         .serve_with_incoming_shutdown(incoming, async move {
@@ -255,14 +308,14 @@ async fn main() -> anyhow::Result<()> {
                         .map_err(|e| anyhow::anyhow!("Server error: {}", e))
                 }
                 #[cfg(not(target_os = "linux"))]
-                Transport::Vsock { .. } => {
-                    Err(anyhow::anyhow!("Vsock not supported on this platform (Linux only)"))
-                }
+                Transport::Vsock { .. } => Err(anyhow::anyhow!(
+                    "Vsock not supported on this platform (Linux only)"
+                )),
             };
-            
+
             result
         });
-        
+
         server_handles.push(handle);
     }
 
@@ -290,7 +343,7 @@ async fn main() -> anyhow::Result<()> {
         mgr.shutdown(); // Close event channel first
         mgr.stop_all().await;
     }
-    
+
     // Abort event loop
     event_loop.abort();
 

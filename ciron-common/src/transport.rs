@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use std::{path::PathBuf, u32};
+use tokio_vsock::VMADDR_CID_ANY;
 
 #[derive(Debug, Clone)]
 pub enum Transport {
     Inet { host: String, port: u16 },
-    Unix { path: PathBuf },    
+    Unix { path: PathBuf },
     Vsock { cid: u32, port: u32 },
 }
 
@@ -15,28 +16,31 @@ impl Transport {
             port: 50051,
         }
     }
-    
+
     pub fn default_unix() -> Self {
         Transport::Unix {
             path: PathBuf::from("/tmp/cirond.sock"),
         }
     }
-    
+
     pub fn default_vsock() -> Self {
         Transport::Vsock {
-            cid: u32::MAX,
+            cid:VMADDR_CID_ANY,
             port: 50051,
         }
     }
-    
+
     /// Parse transport from string
-    /// 
+    ///
     /// Formats:
     /// - `inet://host:port` or `tcp://host:port`
     /// - `unix:///path/to/socket`
     /// - `vsock://cid:port`
     pub fn parse(s: &str) -> Result<Self> {
-        if let Some(addr) = s.strip_prefix("inet://").or_else(|| s.strip_prefix("tcp://")) {
+        if let Some(addr) = s
+            .strip_prefix("inet://")
+            .or_else(|| s.strip_prefix("tcp://"))
+        {
             let parts: Vec<&str> = addr.split(':').collect();
             if parts.len() != 2 {
                 anyhow::bail!("Invalid inet address format. Expected host:port");
@@ -57,9 +61,7 @@ impl Transport {
             let port = parts[1].parse().context("Invalid port")?;
             Ok(Transport::Vsock { cid, port })
         } else {
-            anyhow::bail!(
-                "Unknown transport type. Use inet://, unix://, or vsock:// prefix"
-            )
+            anyhow::bail!("Unknown transport type. Use inet://, unix://, or vsock:// prefix")
         }
     }
 }
