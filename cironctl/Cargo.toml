@@ -1,0 +1,24 @@
+[package]
+name = "cironctl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cironctl"
+path = "src/main.rs"
+
+[dependencies]
+ciron-common = { path = "../ciron-common" }
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = "0.1"
+tower = "0.4"
+hyper-util = { version = "0.1", features = ["tokio"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio-vsock = "0.5"

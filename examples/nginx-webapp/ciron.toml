@@ -1,0 +1,27 @@
+log_level = "info"
+
+# Transport configuration
+[transport]
+enable_unix = true
+unix_socket_path = "/tmp/cirond.sock"
+enable_inet = true
+inet_address = "0.0.0.0:50051"
+enable_vsock = false
+vsock_cid = 2
+vsock_port = 50051
+
+# Backend Python application
+[program.webapp]
+command = "python3 /app/app.py"
+autostart = true
+restart = "always"
+
+[program.webapp.env]
+PORT = "8080"
+PYTHONUNBUFFERED = "1"
+
+# Nginx reverse proxy
+[program.nginx]
+command = "nginx -c /etc/nginx/nginx.conf -g 'daemon off;'"
+autostart = true
+restart = "always"

@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+package ciron.v1;
+
+// Ciron Daemon Service
+// Provides API for managing processes through cirond
+service CironDaemon {
+  // Get status of all processes
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  
+  // Get status of a specific process
+  rpc GetProcessStatus(GetProcessStatusRequest) returns (ProcessStatus);
+  
+  // Start a process
+  rpc StartProcess(StartProcessRequest) returns (StartProcessResponse);
+  
+  // Stop a process
+  rpc StopProcess(StopProcessRequest) returns (StopProcessResponse);
+  
+  // Restart a process
+  rpc RestartProcess(RestartProcessRequest) returns (RestartProcessResponse);
+  
+  // Get logs of a process
+  rpc GetLogs(GetLogsRequest) returns (stream LogEntry);
+  
+  // Reload daemon configuration
+  rpc ReloadConfig(ReloadConfigRequest) returns (ReloadConfigResponse);
+  
+  // Shutdown daemon
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+  
+  // Stream process events
+  rpc StreamEvents(StreamEventsRequest) returns (stream ProcessEvent);
+}
+
+// Request/Response messages
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  repeated ProcessStatus processes = 1;
+  DaemonInfo daemon_info = 2;
+}
+
+message GetProcessStatusRequest {
+  string name = 1;
+}
+
+message StartProcessRequest {
+  string name = 1;
+}
+
+message StartProcessResponse {
+  bool success = 1;
+  string message = 2;
+  ProcessStatus status = 3;
+}
+
+message StopProcessRequest {
+  string name = 1;
+  bool force = 2;  // Force kill if true
+}
+
+message StopProcessResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RestartProcessRequest {
+  string name = 1;
+}
+
+message RestartProcessResponse {
+  bool success = 1;
+  string message = 2;
+  ProcessStatus status = 3;
+}
+
+message GetLogsRequest {
+  string name = 1;
+  bool follow = 2;
+  int32 lines = 3;  // Number of lines to retrieve (0 = all)
+  optional string since = 4;  // Timestamp to start from
+}
+
+message LogEntry {
+  string timestamp = 1;
+  LogLevel level = 2;
+  string source = 3;  // stdout or stderr
+  string message = 4;
+}
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_TRACE = 1;
+  LOG_LEVEL_DEBUG = 2;
+  LOG_LEVEL_INFO = 3;
+  LOG_LEVEL_WARN = 4;
+  LOG_LEVEL_ERROR = 5;
+}
+
+message ReloadConfigRequest {}
+
+message ReloadConfigResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string added_processes = 3;
+  repeated string removed_processes = 4;
+  repeated string updated_processes = 5;
+}
+
+message ShutdownRequest {
+  bool graceful = 1;
+  optional int32 timeout_seconds = 2;
+}
+
+message ShutdownResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message StreamEventsRequest {
+  repeated string process_names = 1;  // Empty = all processes
+}
+
+message ProcessEvent {
+  string process_name = 1;
+  ProcessEventType event_type = 2;
+  string timestamp = 3;
+  optional int32 exit_code = 4;
+  optional int32 pid = 5;
+  optional string message = 6;
+}
+
+enum ProcessEventType {
+  PROCESS_EVENT_TYPE_UNSPECIFIED = 0;
+  PROCESS_EVENT_TYPE_STARTING = 1;
+  PROCESS_EVENT_TYPE_STARTED = 2;
+  PROCESS_EVENT_TYPE_STOPPING = 3;
+  PROCESS_EVENT_TYPE_STOPPED = 4;
+  PROCESS_EVENT_TYPE_EXITED = 5;
+  PROCESS_EVENT_TYPE_FAILED = 6;
+  PROCESS_EVENT_TYPE_RESTARTING = 7;
+}
+
+// Data models
+
+message ProcessStatus {
+  string name = 1;
+  ProcessState state = 2;
+  optional int32 pid = 3;
+  optional string started_at = 4;
+  optional int32 uptime_seconds = 5;
+  optional int32 restart_count = 6;
+  ProcessConfig config = 7;
+}
+
+enum ProcessState {
+  PROCESS_STATE_UNSPECIFIED = 0;
+  PROCESS_STATE_STOPPED = 1;
+  PROCESS_STATE_STARTING = 2;
+  PROCESS_STATE_RUNNING = 3;
+  PROCESS_STATE_STOPPING = 4;
+  PROCESS_STATE_FAILED = 5;
+  PROCESS_STATE_EXITED = 6;
+}
+
+message ProcessConfig {
+  string command = 1;
+  bool autostart = 2;
+  optional string restart_policy = 3;
+  map<string, string> env = 4;
+  optional string working_directory = 5;
+  optional string user = 6;
+  optional string group = 7;
+}
+
+message DaemonInfo {
+  string version = 1;
+  string started_at = 2;
+  int32 uptime_seconds = 3;
+  string config_file = 4;
+  int32 total_processes = 5;
+  int32 running_processes = 6;
+  int32 stopped_processes = 7;
+  TransportInfo transport = 8;
+}
+
+message TransportInfo {
+  TransportType type = 1;
+  string address = 2;
+}
+
+enum TransportType {
+  TRANSPORT_TYPE_UNSPECIFIED = 0;
+  TRANSPORT_TYPE_INET = 1;     // TCP/IP socket
+  TRANSPORT_TYPE_UNIX = 2;     // Unix domain socket
+  TRANSPORT_TYPE_VSOCK = 3;    // VM sockets
+}

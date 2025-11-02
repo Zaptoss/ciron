@@ -1,0 +1,21 @@
+log_level = "info"
+
+# Transport configuration
+[transport]
+enable_unix = true
+unix_socket_path = "/tmp/cirond.sock"
+enable_inet = false
+inet_address = "127.0.0.1:50051"
+enable_vsock = false
+vsock_cid = 2
+vsock_port = 50051
+
+[program.hello]
+command = "sh -c 'while true; do echo \"Hello from Ciron at $(date)\"; sleep 2; done'"
+autostart = true
+restart = "always"
+
+[program.counter]
+command = "sh -c 'i=0; while true; do echo \"Count: $i\"; i=$((i+1)); sleep 3; done'"
+autostart = true
+restart = "on-failure"

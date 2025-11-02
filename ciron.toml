@@ -1,0 +1,15 @@
+log_level = "info"
+
+[transport]
+enable_unix = true
+unix_socket_path = "/tmp/cirond.sock"
+enable_inet = false
+inet_address = "127.0.0.1:50051"
+enable_vsock = false
+vsock_cid = 2
+vsock_port = 50051
+
+[program.sleep]
+command = "sleep 5"
+autostart = true
+restart = "on-failure"
